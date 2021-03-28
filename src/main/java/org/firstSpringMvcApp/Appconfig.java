@@ -1,6 +1,7 @@
 package org.firstSpringMvcApp;
 
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mitchellbosecke.pebble.PebbleEngine;
 import com.mitchellbosecke.pebble.extension.AbstractExtension;
 import com.mitchellbosecke.pebble.extension.Extension;
@@ -11,6 +12,7 @@ import com.mitchellbosecke.pebble.template.EvaluationContext;
 import com.mitchellbosecke.pebble.template.PebbleTemplate;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import org.apache.activemq.artemis.jms.client.ActiveMQJMSConnectionFactory;
 import org.apache.catalina.Context;
 import org.apache.catalina.WebResourceRoot;
 import org.apache.catalina.startup.Tomcat;
@@ -19,13 +21,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.MessageSource;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.ComponentScan;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.PropertySource;
+import org.springframework.context.annotation.*;
 import org.springframework.context.support.ResourceBundleMessageSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jms.annotation.EnableJms;
+import org.springframework.jms.config.DefaultJmsListenerContainerFactory;
+import org.springframework.jms.core.JmsTemplate;
+import org.springframework.mail.MailSender;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.JavaMailSenderImpl;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -40,6 +46,7 @@ import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
 
 import javax.annotation.Resource;
+import javax.jms.ConnectionFactory;
 import javax.servlet.ServletContext;
 import javax.sql.DataSource;
 import java.io.File;
@@ -49,7 +56,11 @@ import java.util.*;
 @ComponentScan
 @Component
 @EnableWebMvc
-@PropertySource("classpath:/jdbc.properties")
+@EnableJms
+@EnableScheduling
+@EnableMBeanExport
+@PropertySource({"classpath:/jdbc.properties", "classpath:/smtp.properties",
+        "classpath:/jms.properties", "classpath:/task.properties"})
 public class Appconfig {
     public static void main(String[] args) throws Exception{
         Tomcat tomcat = new Tomcat();
@@ -167,4 +178,51 @@ public class Appconfig {
             }
         };
     }
+
+    @Bean
+    JavaMailSender createJavaMailSender(
+        // smtp.properties:
+        @Value("${smtp.host}") String host,
+        @Value("${smtp.port}") int port,
+        @Value("${smtp.auth}") String auth,
+        @Value("${smtp.username}") String username,
+        @Value("${smtp.password}") String password,
+        @Value("${smtp.debug:true}") String debug){
+        var mailSender = new JavaMailSenderImpl();
+        mailSender.setHost(host);
+        mailSender.setPort(port);
+        mailSender.setUsername(username);
+        mailSender.setPassword(password);
+        Properties props = mailSender.getJavaMailProperties();
+        props.put("mail.transport.protocol", "smtp");
+        props.put("mail.smtp.auth", auth);
+        if (port == 587) {
+            props.put("mail.smtp.starttls.enable", "true");
+        }
+        if (port == 465) {
+            props.put("mail.smtp.socketFactory.port", "465");
+            props.put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory");
+        }
+        props.put("mail.debug", debug);
+        return mailSender;
+    }
+
+    @Bean
+    ConnectionFactory createConnectionFactory(
+            @Value("${jms.uri}") String uri, @Value("${jms.username}") String username, @Value("${jms.password}") String password){
+        return new ActiveMQJMSConnectionFactory(uri, username, password);
+    }
+
+    @Bean
+    JmsTemplate createJmsTemplate(@Autowired ConnectionFactory connectionFactory){
+        return new JmsTemplate(connectionFactory);
+    }
+
+    @Bean("jmsListenerContainerFactory")
+    DefaultJmsListenerContainerFactory createJmsListenerContainerFactory(@Autowired ConnectionFactory connectionFactory){
+        var factory = new DefaultJmsListenerContainerFactory();
+        factory.setConnectionFactory(connectionFactory);
+        return factory;
+    }
+
 }

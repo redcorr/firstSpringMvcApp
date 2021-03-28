@@ -1,6 +1,9 @@
 package org.firstSpringMvcApp.web;
 
+import org.firstSpringMvcApp.entity.MailMessage;
 import org.firstSpringMvcApp.entity.User;
+import org.firstSpringMvcApp.service.MailService;
+import org.firstSpringMvcApp.service.MessageService;
 import org.firstSpringMvcApp.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
@@ -14,6 +17,8 @@ import java.util.Map;
 
 @Controller
 public class UserController {
+    @Autowired
+    MessageService messageService;
     @Autowired
     UserService userService;
 
@@ -35,6 +40,13 @@ public class UserController {
         }else{
             userService.register(email,name,password);
             string = "Registered.";
+            new Thread(()-> {
+                try {
+                    messageService.sendMailMessage(new MailMessage(userService.getUserById(userService.getIdByEmail(email))));
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            });
         }
         return new ModelAndView("login.html");
     }
